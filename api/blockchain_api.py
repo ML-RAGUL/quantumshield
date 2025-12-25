@@ -12,6 +12,7 @@ import os
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
 from blockchain.blockchain import Blockchain
+from blockchain.block import Transaction
 from ai_security.anomaly_detector import AnomalyDetector
 
 # Initialize Flask app
@@ -105,39 +106,51 @@ def send_transaction():
     """Send a transaction"""
     data = request.get_json()
     
-    # Validate input
-    required = ['sender_name', 'recipient', 'amount']
-    if not all(field in data for field in required):
+    # Validate input - allow either sender_name OR sender_address
+    if 'sender_address' in data:
+        sender_address = data['sender_address']
+    elif 'sender_name' in data:
+        sender_name = data['sender_name']
+        if sender_name not in wallets:
+            return jsonify({
+                'success': False,
+                'error': f'Wallet "{sender_name}" not found. Use sender_address instead.'
+            }), 404
+        sender_address = wallets[sender_name]
+    else:
         return jsonify({
             'success': False,
-            'error': 'Missing required fields: sender_name, recipient, amount'
+            'error': 'Missing required field: sender_name or sender_address'
         }), 400
     
-    sender_name = data['sender_name']
+    if 'recipient' not in data or 'amount' not in data:
+        return jsonify({
+            'success': False,
+            'error': 'Missing required fields: recipient, amount'
+        }), 400
+    
     recipient = data['recipient']
     amount = float(data['amount'])
     
-    # Get sender wallet
-    if sender_name not in wallets:
-        return jsonify({
-            'success': False,
-            'error': f'Wallet "{sender_name}" not found'
-        }), 404
-    
-    sender_wallet = wallets[sender_name]
-    
-    # Create and add transaction
+    # Add transaction using blockchain method
     try:
-        tx = blockchain.create_transaction(
-            sender_wallet,
-            recipient,
-            amount
-        )
+        success = blockchain.add_transaction(sender_address, recipient, amount)
+        
+        if not success:
+            return jsonify({
+                'success': False,
+                'error': 'Insufficient balance'
+            }), 400
+        
+        # Get the transaction we just added
+        tx = blockchain.pending_transactions[-1]
         
         # Check with AI security
         is_anomaly, confidence, reason = detector.predict(tx)
         
         if is_anomaly:
+            # Remove the transaction
+            blockchain.pending_transactions.pop()
             return jsonify({
                 'success': False,
                 'error': 'Transaction flagged by AI security',
@@ -147,9 +160,6 @@ def send_transaction():
                     'reason': reason
                 }
             }), 403
-        
-        # Add to pending
-        blockchain.add_transaction(tx)
         
         return jsonify({
             'success': True,
@@ -167,7 +177,7 @@ def send_transaction():
             'message': 'Transaction added to pending pool'
         }), 201
         
-    except ValueError as e:
+    except Exception as e:
         return jsonify({
             'success': False,
             'error': str(e)
@@ -177,7 +187,7 @@ def send_transaction():
 @app.route('/api/block/mine', methods=['POST'])
 def mine_block():
     """Mine a new block"""
-    data = request.get_json()
+    data = request.get_json() or {}
     miner_address = data.get('miner_address')
     
     if not miner_address:
@@ -186,9 +196,21 @@ def mine_block():
             'error': 'miner_address required'
         }), 400
     
+    # Add a reward transaction if no pending transactions
+    if not blockchain.pending_transactions:
+        blockchain.pending_transactions.append(
+            Transaction("System", miner_address, blockchain.mining_reward, nonce="reward")
+        )
+    
     # Mine block
     try:
         new_block = blockchain.mine_pending_transactions(miner_address)
+        
+        if new_block is None:
+            return jsonify({
+                'success': False,
+                'error': 'No transactions to mine'
+            }), 400
         
         return jsonify({
             'success': True,

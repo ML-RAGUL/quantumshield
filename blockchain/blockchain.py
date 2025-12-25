@@ -77,7 +77,7 @@ class Blockchain:
         
         if not self.pending_transactions:
             print("⚠️  No transactions to mine")
-            return
+            return None
         
         print(f"\n⛏️  Mining {len(self.pending_transactions)} transaction(s)...")
         
@@ -100,6 +100,8 @@ class Blockchain:
             Transaction("System", miner_address, self.mining_reward, nonce="reward")
         ]
         print(f"💰 Mining reward ({self.mining_reward}) sent to miner")
+        
+        return block
     
     def get_balance(self, address: str) -> float:
         """Calculate balance for an address"""
