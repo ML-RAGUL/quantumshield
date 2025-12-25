@@ -5,8 +5,8 @@ Quantum-Safe Blockchain Implementation
 import json
 from datetime import datetime
 from typing import List, Optional
-from block import Block, Transaction
-from pqc_crypto import PQCKeyPair, PQCSignature
+from blockchain.block import Block, Transaction
+from blockchain.pqc_crypto import PQCKeyPair, PQCSignature
 
 
 class Blockchain:
